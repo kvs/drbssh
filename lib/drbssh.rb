@@ -65,6 +65,13 @@ module DRb
 		attr_reader :read_fd
 		attr_reader :write_fd
 
+		def initialize(server)
+			@receiveq, @sendq = Queue.new, Queue.new
+			@write_fd.sync = true
+
+			server.client_queue.push(self)
+		end
+
 		def send_request(ref, msg_id, arg, b)
 			@sendq.push(['req', [ref, msg_id, arg, b]])
 		end
@@ -82,8 +89,6 @@ module DRb
 	class DRbSSHRemoteClient < DRbSSHClient
 		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
 		def initialize(uri, server)
-			@server = server
-
 			# child-to-parent, parent-to-child
 			ctp_rd, ctp_wr = IO.pipe
 			ptc_rd, ptc_wr = IO.pipe
@@ -114,15 +119,12 @@ module DRb
 				ctp_wr.close
 				ptc_rd.close
 
-				ptc_wr.sync = true
-
 				# Pump initial code into the remote Ruby-process, so a full two-way DRb-session can be established.
 				ptc_wr.write(self_code)
 
-				@receiveq, @sendq   = Queue.new, Queue.new
 				@read_fd, @write_fd = ctp_rd, ptc_wr
 
-				@server.client_queue.push(self)
+				super(server)
 			end
 		end
 
@@ -136,14 +138,9 @@ module DRb
 	class DRbSSHLocalClient < DRbSSHClient
 		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
 		def initialize(server)
-			@server = server
-
-			$stdout.sync = true
-
-			@receiveq, @sendq   = Queue.new, Queue.new
 			@read_fd, @write_fd = $stdin, $stdout
 
-			@server.client_queue.push(self)
+			super(server)
 		end
 
 		def close
