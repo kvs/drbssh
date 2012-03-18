@@ -17,9 +17,14 @@ describe DRb::DRbSSHProtocol do
 	it "starts and stops when requested" do
 		expect { DRb.current_server }.to raise_exception DRb::DRbServerNotFound
 		DRb.start_service("drbssh://localhost?local")
-		DRb.current_server.instance_variable_get("@protocol").should be_an_instance_of DRb::DRbSSHLocalServer
+		DRb.current_server.instance_variable_get("@protocol").should be_an_instance_of DRb::DRbSSHServer
 		DRb.stop_service
 		expect { DRb.current_server }.to raise_exception DRb::DRbServerNotFound
+	end
+
+	it "disallows running two drbssh-servers" do
+		DRb.start_service("drbssh://localhost?local")
+		expect { DRb.start_service("drbssh://localhost2?local") }.to raise_exception DRb::DRbConnError
 	end
 
 	it "creates DRbObjects with a URI pointed to itself" do

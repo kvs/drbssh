@@ -2,21 +2,24 @@
 
 require 'drb'
 
-# Open an SSH connection to a remote server, and run a DRb server there, too. Make them communicate through
-# stdin/stdout, and make the connection two-way while we're at it.
+# DRb protocol handler for using a persistent SSH connection to a remote server. Creates a duplex
+# connection so DRbUndumped objects can contact the initiating machine back through the same link.
+#
+# Contains all needed classes and no external dependencies, since this file will be read and sent
+# to the remote end, to bootstrap its protocol support without requiring anything but Ruby
+# installed.
+
 module DRb
+
 	class DRbSSHProtocol
 		# Open a client connection to the server at +uri+, using configuration +config+, and return it.
 		def self.open(uri, config)
-			if @server.nil? or @server.closed?
-				raise DRbServerNotFound, "need to run a DRbSSH server first"
+			raise DRbServerNotFound, "need to run a DRbSSH server first" if @server.nil? or @server.closed?
+
+			if local?(uri)
+				@client
 			else
-				_, _, option = self.split_uri(uri)
-				if option == 'local'
-					DRbSSHLocalClient.new(uri, config, @server)
-				else
-					DRbSSHRemoteClient.new(uri, config, @server)
-				end
+				DRbSSHRemoteClient.new(uri, config, @server)
 			end
 		end
 
@@ -24,24 +27,18 @@ module DRb
 		def self.open_server(uri, config)
 			# Ensure just one DRbSSH-server is active, since more doesn't make sense.
 			if @server.nil? or @server.closed?
-				_, _, option = self.split_uri(uri)
-				if option == 'local'
-					@server = DRbSSHLocalServer.new(uri, config)
-				else
-					@server = DRbSSHRemoteServer.new(uri, config)
-				end
+				@server = DRbSSHServer.new(uri, config)
+				@client = DRbSSHLocalClient.new(uri, config, @server) unless local?(uri)
 			else
-				if @server.uri != uri
-					raise DRbConnError, "server already running with different uri"
-				else
-					@server
-				end
+				raise DRbConnError, "server already running with different uri" if @server.uri != uri
 			end
+
+			@server
 		end
 
 		# Parse +uri+ into a [uri, option] pair.
 		def self.uri_option(uri, config)
-			host, path, option = self.split_uri(uri)
+			host, path, option = split_uri(uri)
 			[ "drbssh://#{host}/#{path}", option ]
 		end
 
@@ -54,16 +51,35 @@ module DRb
 				raise DRbBadURI, "can't parse uri: " + uri
 			end
 		end
+
+		def self.local?(uri)
+			_, _, option = self.split_uri(uri)
+			!(option.nil? or option == '')
+		end
 	end
 	DRbProtocol.add_protocol(DRbSSHProtocol)
 
-	# Class for connecting to a remote object.
-	class DRbSSHRemoteClient
+	class DRbSSHClient
 		attr_reader :receiveq
 		attr_reader :sendq
 		attr_reader :read_fd
 		attr_reader :write_fd
 
+		def send_request(ref, msg_id, arg, b)
+			@sendq.push(['req', [ref, msg_id, arg, b]])
+		end
+
+		def recv_reply
+			@receiveq.pop
+		end
+
+		def alive?
+			!self.read_fd.closed? && !self.write_fd.closed?
+		end
+	end
+
+	# Class for connecting to a remote object.
+	class DRbSSHRemoteClient < DRbSSHClient
 		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
 		def initialize(uri, config, server)
 			@uri = uri
@@ -112,26 +128,35 @@ module DRb
 			end
 		end
 
-		def send_request(ref, msg_id, arg, b)
-			@sendq.push(['req', [ref, msg_id, arg, b]])
-		end
-
-		def recv_reply
-			@receiveq.pop
-		end
-
-		def alive?
-			!self.read_fd.closed? && !self.write_fd.closed?
-		end
-
 		def close
 			self.read_fd.close
 			self.write_fd.close
 		end
 	end
 
+	# Class for connecting to a remote object.
+	class DRbSSHLocalClient < DRbSSHClient
+		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
+		def initialize(uri, config, server)
+			@uri = uri
+			@config = config
+			@server = server
+
+			$stdout.sync = true
+
+			@receiveq, @sendq   = Queue.new, Queue.new
+			@read_fd, @write_fd = $stdin, $stdout
+
+			@server.client_queue.push(self)
+		end
+
+		def close
+			Kernel.exit 0
+		end
+	end
+
 	# Server running on local side
-	class DRbSSHLocalServer
+	class DRbSSHServer
 		attr_reader :uri
 		attr_reader :client_queue
 
@@ -145,7 +170,7 @@ module DRb
 
 		def accept
 			client = @client_queue.pop
-			@clients << DRbSSHLocalServerConn.new(uri, @config, client)
+			@clients << DRbSSHServerConn.new(uri, @config, client)
 			@clients.last
 		end
 
@@ -157,7 +182,7 @@ module DRb
 	end
 
 	# Per-connection class
-	class DRbSSHLocalServerConn
+	class DRbSSHServerConn
 		attr_reader :uri
 
 		def initialize(uri, config, client)
@@ -217,115 +242,6 @@ module DRb
 		# Queue client-reply
 		def send_reply(succ, result)
 			@client.sendq.push(['rep', [succ, result]])
-		end
-	end
-
-	# Class for connecting to a ?local URI - used on remote side to talk to local side.
-	class DRbSSHLocalClient
-		# The local client should relay its information back through the +server+, since it can't establish its
-		# own connection
-		def initialize(uri, config, server)
-			@server = server
-			@closed = false
-			$stdout.sync = true
-		end
-
-		def send_request(ref, msg_id, arg, b)
-			@server.cl_sendq.push(['req', [ref, msg_id, arg, b]])
-		end
-
-		def recv_reply
-			@server.cl_recvq.pop
-		end
-
-		def alive?
-			!@closed
-		end
-
-		# Nothing to do - we simply stop piggy-backing.
-		def close
-			@closed = true
-		end
-	end
-
-	# Server running on remote side
-	class DRbSSHRemoteServer
-		attr_reader :uri
-		attr_reader :cl_sendq
-		attr_reader :cl_recvq
-
-		def initialize(uri, config)
-			@uri = uri
-			msg = DRbMessage.new(config)
-			@srv_requestq = Queue.new
-			@cl_sendq = Queue.new
-			@cl_recvq = Queue.new
-
-			$stdout.sync = true
-
-			# Read-thread
-			Thread.new do
-				begin
-					loop do
-						type = msg.load($stdin)
-						if type == 'req'
-							@srv_requestq.push(msg.recv_request($stdin))
-						else
-							@cl_recvq.push(msg.recv_reply($stdin))
-						end
-					end
-				rescue
-					Kernel.exit 0
-				end
-			end
-
-			# Write-thread
-			Thread.new do
-				begin
-					loop do
-						type, data = @cl_sendq.pop
-
-						$stdout.write(msg.dump(type))
-
-						if type == 'req'
-							msg.send_request($stdout, *data)
-						else
-							msg.send_reply($stdout, *data)
-						end
-					end
-				rescue
-					Kernel.exit 0
-				end
-			end
-		end
-
-		# Accept incoming connection once, and sleep after that.
-		# DRb creates a thread on client connection, and thus returns to waiting on #accept immediately.
-		def accept
-			if @accepted
-				sleep 60 while true
-			else
-				@accepted = self
-			end
-		end
-
-		# Handles both closure of client and server.
-		def close
-		end
-
-		# Receives a request on $stdin
-		def recv_request
-			@srv_requestq.pop
-		end
-
-		# Sends reply back on $stdout
-		def send_reply(succ, result)
-			@cl_sendq.push(['rep', [succ, result]])
-		end
-
-		# Server quits when closing, so closed? is always false.
-		def closed?
-			false
 		end
 	end
 end
