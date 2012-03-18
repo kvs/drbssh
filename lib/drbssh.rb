@@ -64,7 +64,6 @@ module DRb
 			@uri = uri
 			@config = config
 			@server = server
-			@msg = DRbMessage.new(config)
 
 			# child-to-parent, parent-to-child
 			ctp_rd, ctp_wr = IO.pipe
@@ -153,22 +152,21 @@ module DRb
 		attr_reader :uri
 
 		def initialize(uri, config, client)
-			@config = config
 			@uri = uri
-			@msg = DRbMessage.new(config)
 			@client = client
-
 			@srv_requestq = Queue.new
+
+			msg = DRbMessage.new(config)
 
 			# Read-thread
 			Thread.new do
 				# read from client's in-fd, and delegate to #recv_request or client.recv_reply
 				loop do
-					type = @msg.load(client[:read_fd])
+					type = msg.load(client[:read_fd])
 					if type == 'req'
-						@srv_requestq.push(@msg.recv_request(client[:read_fd]))
+						@srv_requestq.push(msg.recv_request(client[:read_fd]))
 					else
-						client[:receiveq].push(@msg.recv_reply(client[:read_fd]))
+						client[:receiveq].push(msg.recv_reply(client[:read_fd]))
 					end
 				end
 			end
@@ -178,12 +176,12 @@ module DRb
 				loop do
 					type, data = client[:sendq].pop
 
-					client[:write_fd].write(@msg.dump(type))
+					client[:write_fd].write(msg.dump(type))
 
 					if type == 'req'
-						@msg.send_request(client[:write_fd], *data)
+						msg.send_request(client[:write_fd], *data)
 					else
-						@msg.send_reply(client[:write_fd], *data)
+						msg.send_reply(client[:write_fd], *data)
 					end
 				end
 			end
@@ -241,7 +239,7 @@ module DRb
 
 		def initialize(uri, config)
 			@uri = uri
-			@msg = DRbMessage.new(config)
+			msg = DRbMessage.new(config)
 			@srv_requestq = Queue.new
 			@cl_sendq = Queue.new
 			@cl_recvq = Queue.new
@@ -251,11 +249,11 @@ module DRb
 			# Read-thread
 			Thread.new do
 				loop do
-					type = @msg.load($stdin)
+					type = msg.load($stdin)
 					if type == 'req'
-						@srv_requestq.push(@msg.recv_request($stdin))
+						@srv_requestq.push(msg.recv_request($stdin))
 					else
-						@cl_recvq.push(@msg.recv_reply($stdin))
+						@cl_recvq.push(msg.recv_reply($stdin))
 					end
 				end
 			end
@@ -265,12 +263,12 @@ module DRb
 				loop do
 					type, data = @cl_sendq.pop
 
-					$stdout.write(@msg.dump(type))
+					$stdout.write(msg.dump(type))
 
 					if type == 'req'
-						@msg.send_request($stdout, *data)
+						msg.send_request($stdout, *data)
 					else
-						@msg.send_reply($stdout, *data)
+						msg.send_reply($stdout, *data)
 					end
 				end
 			end
