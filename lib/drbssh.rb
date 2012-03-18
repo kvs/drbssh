@@ -23,14 +23,11 @@ module DRb
 
 		# Open a server listening at +uri+, using configuration +config+, and return it.
 		def self.open_server(uri, config)
-			# Ensure just one DRbSSH-server is active, since more doesn't make sense.
-			if @server.nil? or @server.closed?
-				@server = DRbSSHServer.new(uri, config)
-			else
-				raise DRbConnError, "server already running with different uri" if @server.uri != uri
-			end
+			@server = nil if !@server.nil? and @server.closed?
 
-			@server
+			raise DRbConnError, "server already running with different uri" if !@server.nil? and @server.uri != uri
+
+			@server ||= DRbSSHServer.new(uri, config)
 		end
 
 		# Parse +uri+ into a [uri, option] pair.
@@ -152,7 +149,6 @@ module DRb
 			@config = config
 			@client_queue = Queue.new
 			@clients = []
-			@closed = false
 		end
 
 		def accept
@@ -163,9 +159,12 @@ module DRb
 
 		def close
 			@clients.map(&:close)
-			@closed = true
+			@clients = nil
 		end
-		def closed?; @closed; end
+
+		def closed?
+			@clients.nil?
+		end
 	end
 
 	# Per-connection class
