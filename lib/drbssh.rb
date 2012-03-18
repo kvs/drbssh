@@ -8,7 +8,7 @@ module DRb
 	class DRbSSHProtocol
 		# Open a client connection to the server at +uri+, using configuration +config+, and return it.
 		def self.open(uri, config)
-			if @server.nil?
+			if @server.nil? or @server.closed?
 				raise DRbServerNotFound, "need to run a DRbSSH server first"
 			else
 				_, _, option = self.split_uri(uri)
@@ -102,7 +102,7 @@ module DRb
 
 				@receiveq = Queue.new
 				@sendq = Queue.new
-
+				@closed = false
 				@server.client_queue.push({ receiveq: @receiveq, sendq: @sendq, read_fd: ctp_rd, write_fd: ptc_wr })
 			end
 		end
@@ -116,10 +116,11 @@ module DRb
 		end
 
 		def alive?
-			true # FIXME
+			!@closed
 		end
 
 		def close
+			@closed = true
 			Process.kill("QUIT", @child_pid)
 		end
 	end
@@ -133,21 +134,24 @@ module DRb
 			@uri = uri
 			@config = config
 			@client_queue = Queue.new
+			@clients = []
 			@closed = false
 		end
 
 		def accept
 			client = @client_queue.pop
-			DRbSSHLocalServerConn.new(uri, @config, client)
+			@clients << DRbSSHLocalServerConn.new(uri, @config, client)
+			@clients.last
 		end
 
 		def close
-			# FIXME: shutdown all RemoteClients
+			@clients.map(&:close)
 			@closed = true
 		end
 		def closed?; @closed; end
 	end
 
+	# Per-connection class
 	class DRbSSHLocalServerConn
 		attr_reader :uri
 
@@ -187,16 +191,18 @@ module DRb
 			end
 		end
 
+		# Close the FDs on the RemoteClient associated with this connection.
 		def close
-			true # FIXME: close fds?
+			# @client[:read_fd].close
+			# @client[:write_fd].close
 		end
 
-		# Receive
+		# Wait for a request to appear on the request-queue
 		def recv_request
 			@srv_requestq.pop
 		end
 
-		# Sends reply back on $
+		# Queue client-reply
 		def send_reply(succ, result)
 			@client[:sendq].push(['rep', [succ, result]])
 		end
@@ -207,10 +213,9 @@ module DRb
 		# The local client should relay its information back through the +server+, since it can't establish its
 		# own connection
 		def initialize(uri, config, server)
-			@uri = uri
-			@config = config
 			@server = server
-			@msg = DRbMessage.new(config)
+			@closed = false
+			$stdout.sync = true
 		end
 
 		def send_request(ref, msg_id, arg, b)
@@ -222,12 +227,12 @@ module DRb
 		end
 
 		def alive?
-			true # FIXME: check if @server is alive
+			!@closed
 		end
 
 		# Nothing to do - we simply stop piggy-backing.
 		def close
-			true
+			@closed = true
 		end
 	end
 
@@ -286,8 +291,8 @@ module DRb
 
 		# Handles both closure of client and server.
 		def close
-			[$stdin, $stdout].each { |fd| fd.close }
-			Kernel.exit 0
+			#[$stdin, $stdout].each { |fd| fd.close }
+			#Kernel.exit 0
 		end
 
 		# Receives a request on $stdin
@@ -298,6 +303,11 @@ module DRb
 		# Sends reply back on $stdout
 		def send_reply(succ, result)
 			@cl_sendq.push(['rep', [succ, result]])
+		end
+
+		# Server quits when closing, so closed? is always false.
+		def closed?
+			false
 		end
 	end
 end
