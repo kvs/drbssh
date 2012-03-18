@@ -99,9 +99,7 @@ module DRb
 			self_code = File.read(__FILE__)
 			self_code += "\nDRb.start_service('#{uri}', binding); DRb.thread.join\n"
 
-			@child_pid = fork
-
-			if @child_pid.nil?
+			if fork.nil?
 				# child
 				ctp_rd.close
 				ptc_wr.close
