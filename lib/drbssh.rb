@@ -89,7 +89,7 @@ module DRb
 				# Open a connection to a remote Ruby, and assume we can read stuff from STDIN, which will be written by
 				# the parent.
 				cmd = ['ruby'] if cmd.nil? or cmd.empty?
-				exec("ssh", host, "exec", *cmd, '-rzlib', '-e', "\"eval STDIN.read(#{self_code.bytesize})\"")
+				exec("ssh", "-oBatchMode=yes", "-T", host, "exec", *cmd, '-rzlib', '-e', "\"eval STDIN.read(#{self_code.bytesize})\"")
 				exit
 			else
 				# parent
