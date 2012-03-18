@@ -263,8 +263,7 @@ module DRb
 						end
 					end
 				rescue
-					[$stdin, $stderr].each { |fd| fd.close unless fd.closed? }
-					DRb.stop_service
+					Kernel.exit 0
 				end
 			end
 
@@ -283,8 +282,7 @@ module DRb
 						end
 					end
 				rescue
-					[$stdin, $stderr].each { |fd| fd.close unless fd.closed? }
-					DRb.stop_service
+					Kernel.exit 0
 				end
 			end
 		end
