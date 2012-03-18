@@ -111,7 +111,7 @@ module DRb
 				cmd = ['ruby'] if cmd.nil? or cmd.empty?
 
 				# exec Ruby on remote end, and read bootstrap code.
-				exec("ssh", "-oBatchMode=yes", "-T", host, "exec", *cmd, '-rzlib', '-e', "\"eval STDIN.read(#{self_code.bytesize})\"")
+				exec("ssh", "-oBatchMode=yes", "-T", host, "exec", *cmd, '-e', "\"eval STDIN.read(#{self_code.bytesize})\"")
 				exit
 			else
 				# In parent - cleanup filehandles, write bootstrap-code, and hand over to superclass.
