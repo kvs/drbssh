@@ -59,6 +59,11 @@ module DRb
 
 	# Class for connecting to a remote object.
 	class DRbSSHRemoteClient
+		attr_reader :receiveq
+		attr_reader :sendq
+		attr_reader :read_fd
+		attr_reader :write_fd
+
 		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
 		def initialize(uri, config, server)
 			@uri = uri
@@ -100,10 +105,10 @@ module DRb
 				# Pump initial code into the remote Ruby-process, so a full two-way DRb-session can be established.
 				ptc_wr.write(self_code)
 
-				@receiveq = Queue.new
-				@sendq = Queue.new
-				@closed = false
-				@server.client_queue.push({ receiveq: @receiveq, sendq: @sendq, read_fd: ctp_rd, write_fd: ptc_wr })
+				@receiveq, @sendq   = Queue.new, Queue.new
+				@read_fd, @write_fd = ctp_rd, ptc_wr
+
+				@server.client_queue.push(self)
 			end
 		end
 
@@ -116,12 +121,12 @@ module DRb
 		end
 
 		def alive?
-			!@closed
+			!self.read_fd.closed? && !self.write_fd.closed?
 		end
 
 		def close
-			@closed = true
-			Process.kill("QUIT", @child_pid)
+			self.read_fd.close
+			self.write_fd.close
 		end
 	end
 
@@ -165,36 +170,43 @@ module DRb
 			# Read-thread
 			Thread.new do
 				# read from client's in-fd, and delegate to #recv_request or client.recv_reply
-				loop do
-					type = msg.load(client[:read_fd])
-					if type == 'req'
-						@srv_requestq.push(msg.recv_request(client[:read_fd]))
-					else
-						client[:receiveq].push(msg.recv_reply(client[:read_fd]))
+				begin
+					loop do
+						type = msg.load(client.read_fd)
+						if type == 'req'
+							@srv_requestq.push(msg.recv_request(client.read_fd))
+						else
+							client.receiveq.push(msg.recv_reply(client.read_fd))
+						end
 					end
+				rescue
+					client.close
 				end
 			end
 
 			# Write-thread
 			Thread.new do
-				loop do
-					type, data = client[:sendq].pop
+				begin
+					loop do
+						type, data = client.sendq.pop
 
-					client[:write_fd].write(msg.dump(type))
+						client.write_fd.write(msg.dump(type))
 
-					if type == 'req'
-						msg.send_request(client[:write_fd], *data)
-					else
-						msg.send_reply(client[:write_fd], *data)
+						if type == 'req'
+							msg.send_request(client.write_fd, *data)
+						else
+							msg.send_reply(client.write_fd, *data)
+						end
 					end
+				rescue
+					client.close
 				end
 			end
 		end
 
 		# Close the FDs on the RemoteClient associated with this connection.
 		def close
-			# @client[:read_fd].close
-			# @client[:write_fd].close
+			@client.close
 		end
 
 		# Wait for a request to appear on the request-queue
@@ -204,7 +216,7 @@ module DRb
 
 		# Queue client-reply
 		def send_reply(succ, result)
-			@client[:sendq].push(['rep', [succ, result]])
+			@client.sendq.push(['rep', [succ, result]])
 		end
 	end
 

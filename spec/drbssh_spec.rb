@@ -61,4 +61,15 @@ describe DRb::DRbSSHProtocol do
 
 		DRb.stop_service
 	end
+
+	it "reconnects when connection has been terminated" do
+		DRb.start_service("drbssh://localhost?local")
+		drb = DRbObject.new_with_uri("drbssh://vagrant-zfs/ruby")
+		drb.eval("`hostname`").should eq "vagrant-ubuntu-oneiric\n"
+		pid = drb.eval('$$')
+
+		expect { drb.eval('Kernel.exit! 0') }.to raise_exception IOError
+
+		drb.eval('$$').should_not eq pid # should create new connection
+	end
 end
