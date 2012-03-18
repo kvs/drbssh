@@ -48,6 +48,8 @@ module DRb
 	end
 	DRbProtocol.add_protocol(DRbSSHProtocol)
 
+
+	# Base class for the DRbSSH clients.
 	class DRbSSHClient
 		attr_reader :receiveq
 		attr_reader :sendq
@@ -74,7 +76,9 @@ module DRb
 		end
 	end
 
-	# Class for connecting to a remote object.
+
+	# DRbSSH remote client - does the heavy lifting of SSH'ing to a remote server and bootstrapping
+	# its Ruby interpreter for DRb communication.
 	class DRbSSHRemoteClient < DRbSSHClient
 		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
 		def initialize(uri, server)
@@ -85,6 +89,8 @@ module DRb
 			host, cmd = DRbSSHProtocol.split_uri(uri)
 
 			# Read the source-code for this file, and add bits for initialising the remote side.
+			# Since DRbSSHServer is doing all the filedescriptor read/writing, we need to start
+			# a DRbSSHLocalClient immediately.
 			self_code = <<-EOT
 				#{File.read(__FILE__)};
 				DRb.start_service("#{uri}", binding)
@@ -92,25 +98,28 @@ module DRb
 				DRb.thread.join
 			EOT
 
+			# Fork to create an SSH child-process
 			if fork.nil?
-				# child
+				# In child - cleanup filehandles, reopen stdin/stdout, and exec ssh to connect to remote
+
 				ctp_rd.close
 				ptc_wr.close
 
 				$stdin.reopen(ptc_rd)
 				$stdout.reopen(ctp_wr)
 
-				# Open a connection to a remote Ruby, and assume we can read stuff from STDIN, which will be written by
-				# the parent.
 				cmd = ['ruby'] if cmd.nil? or cmd.empty?
+
+				# exec Ruby on remote end, and read bootstrap code.
 				exec("ssh", "-oBatchMode=yes", "-T", host, "exec", *cmd, '-rzlib', '-e', "\"eval STDIN.read(#{self_code.bytesize})\"")
 				exit
 			else
-				# parent
+				# In parent - cleanup filehandles, write bootstrap-code, and hand over to superclass.
+
 				ctp_wr.close
 				ptc_rd.close
 
-				# Pump initial code into the remote Ruby-process, so a full two-way DRb-session can be established.
+				# Bootstrap remote Ruby.
 				ptc_wr.write(self_code)
 
 				@read_fd, @write_fd = ctp_rd, ptc_wr
@@ -119,31 +128,39 @@ module DRb
 			end
 		end
 
+		# Close client.
 		def close
+			# Closing the filedescriptors should trigger an IOError in the server-thread
+			# waiting, which makes it close the client attached.
 			self.read_fd.close
 			self.write_fd.close
 		end
 	end
 
-	# Class for connecting to a remote object.
+
+	# DRbSSH client used to contact local objects - used on remote side.
 	class DRbSSHLocalClient < DRbSSHClient
-		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
+		# Use stdin/stdout to talk with the local side of an SSH-connection.
 		def initialize(server)
 			@read_fd, @write_fd = $stdin, $stdout
 
 			super(server)
 		end
 
+		# Kill Ruby if client is asked to close.
 		def close
 			Kernel.exit 0
 		end
 	end
 
-	# Server running on local side
+
+	# Common DRb protocol server for DRbSSH. Waits on incoming clients on a thread-safe `Queue`,
+	# and spawns a new connection handler for each.
 	class DRbSSHServer
 		attr_reader :uri
 		attr_reader :client_queue
 
+		# Create new server.
 		def initialize(uri, config)
 			@uri = uri
 			@config = config
@@ -151,26 +168,34 @@ module DRb
 			@clients = []
 		end
 
+		# Wait for clients to register themselves on the client_queue.
 		def accept
 			client = @client_queue.pop
 			@clients << DRbSSHServerConn.new(uri, @config, client)
 			@clients.last
 		end
 
+		# Close server by closing all clients.
 		def close
 			@clients.map(&:close)
 			@clients = nil
 		end
 
+		# Server is closed if +close+ has been called earlier.
 		def closed?
 			@clients.nil?
 		end
 	end
 
-	# Per-connection class
+
+	# DRbSSH protocol server per-connection class. Handles client-to-client communications
+	# by utilizing thread-safe Queue's for the input and output, and by adding a small
+	# 'rep' or 'req' packet before sending, so we can have two-way DRb duplexed over a
+	# single pair of filedescriptors.
 	class DRbSSHServerConn
 		attr_reader :uri
 
+		# Create a new server-connection for the specified +client+.
 		def initialize(uri, config, client)
 			@uri = uri
 			@client = client
@@ -180,7 +205,7 @@ module DRb
 
 			# Read-thread
 			Thread.new do
-				# read from client's in-fd, and delegate to #recv_request or client.recv_reply
+				# Read from client, and delegate request/reply to the correct place.
 				begin
 					loop do
 						type = msg.load(client.read_fd)
@@ -197,6 +222,8 @@ module DRb
 
 			# Write-thread
 			Thread.new do
+				# Wait for outgoing data on send queue, and add header-packet before
+				# writing.
 				begin
 					loop do
 						type, data = client.sendq.pop
@@ -215,7 +242,7 @@ module DRb
 			end
 		end
 
-		# Close the FDs on the RemoteClient associated with this connection.
+		# Delegate shutdown to client.
 		def close
 			@client.close
 		end
