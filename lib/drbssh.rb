@@ -253,28 +253,38 @@ module DRb
 
 			# Read-thread
 			Thread.new do
-				loop do
-					type = msg.load($stdin)
-					if type == 'req'
-						@srv_requestq.push(msg.recv_request($stdin))
-					else
-						@cl_recvq.push(msg.recv_reply($stdin))
+				begin
+					loop do
+						type = msg.load($stdin)
+						if type == 'req'
+							@srv_requestq.push(msg.recv_request($stdin))
+						else
+							@cl_recvq.push(msg.recv_reply($stdin))
+						end
 					end
+				rescue
+					[$stdin, $stderr].each { |fd| fd.close unless fd.closed? }
+					DRb.stop_service
 				end
 			end
 
 			# Write-thread
 			Thread.new do
-				loop do
-					type, data = @cl_sendq.pop
+				begin
+					loop do
+						type, data = @cl_sendq.pop
 
-					$stdout.write(msg.dump(type))
+						$stdout.write(msg.dump(type))
 
-					if type == 'req'
-						msg.send_request($stdout, *data)
-					else
-						msg.send_reply($stdout, *data)
+						if type == 'req'
+							msg.send_request($stdout, *data)
+						else
+							msg.send_reply($stdout, *data)
+						end
 					end
+				rescue
+					[$stdin, $stderr].each { |fd| fd.close unless fd.closed? }
+					DRb.stop_service
 				end
 			end
 		end
@@ -291,8 +301,6 @@ module DRb
 
 		# Handles both closure of client and server.
 		def close
-			#[$stdin, $stdout].each { |fd| fd.close }
-			#Kernel.exit 0
 		end
 
 		# Receives a request on $stdin
