@@ -19,7 +19,7 @@ module DRb
 			if local?(uri)
 				@client
 			else
-				DRbSSHRemoteClient.new(uri, config, @server)
+				DRbSSHRemoteClient.new(uri, @server)
 			end
 		end
 
@@ -28,7 +28,7 @@ module DRb
 			# Ensure just one DRbSSH-server is active, since more doesn't make sense.
 			if @server.nil? or @server.closed?
 				@server = DRbSSHServer.new(uri, config)
-				@client = DRbSSHLocalClient.new(uri, config, @server) unless local?(uri)
+				@client = DRbSSHLocalClient.new(@server) unless local?(uri)
 			else
 				raise DRbConnError, "server already running with different uri" if @server.uri != uri
 			end
@@ -81,9 +81,7 @@ module DRb
 	# Class for connecting to a remote object.
 	class DRbSSHRemoteClient < DRbSSHClient
 		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
-		def initialize(uri, config, server)
-			@uri = uri
-			@config = config
+		def initialize(uri, server)
 			@server = server
 
 			# child-to-parent, parent-to-child
@@ -137,9 +135,7 @@ module DRb
 	# Class for connecting to a remote object.
 	class DRbSSHLocalClient < DRbSSHClient
 		# Create an SSH-connection to +uri+, and spawn a server, so client has something to talk to
-		def initialize(uri, config, server)
-			@uri = uri
-			@config = config
+		def initialize(server)
 			@server = server
 
 			$stdout.sync = true
