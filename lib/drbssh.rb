@@ -12,15 +12,13 @@ require 'drb'
 module DRb
 
 	class DRbSSHProtocol
+		def self.server; @server; end
+
 		# Open a client connection to the server at +uri+, using configuration +config+, and return it.
 		def self.open(uri, config)
 			raise DRbServerNotFound, "need to run a DRbSSH server first" if @server.nil? or @server.closed?
 
-			if local?(uri)
-				@client
-			else
-				DRbSSHRemoteClient.new(uri, @server)
-			end
+			DRb.thread['DRbSSHLocalClient'] || DRbSSHRemoteClient.new(uri, @server)
 		end
 
 		# Open a server listening at +uri+, using configuration +config+, and return it.
@@ -28,7 +26,6 @@ module DRb
 			# Ensure just one DRbSSH-server is active, since more doesn't make sense.
 			if @server.nil? or @server.closed?
 				@server = DRbSSHServer.new(uri, config)
-				@client = DRbSSHLocalClient.new(@server) unless local?(uri)
 			else
 				raise DRbConnError, "server already running with different uri" if @server.uri != uri
 			end
@@ -38,23 +35,18 @@ module DRb
 
 		# Parse +uri+ into a [uri, option] pair.
 		def self.uri_option(uri, config)
-			host, path, option = split_uri(uri)
-			[ "drbssh://#{host}/#{path}", option ]
+			host, path = split_uri(uri)
+			[ "drbssh://#{host}/#{path}", nil ]
 		end
 
 		# Split URI into component pairs
 		def self.split_uri(uri)
-			if uri.match('^drbssh://([^/?]+)(?:/([^?]+))?(?:\?(.+))?$')
-				[ $1, $2, $3 ]
+			if uri.match('^drbssh://([^/?]+)(?:/(.+))?$')
+				[ $1, $2 ]
 			else
 				raise DRbBadScheme,uri unless uri =~ /^drbssh:/
 				raise DRbBadURI, "can't parse uri: " + uri
 			end
-		end
-
-		def self.local?(uri)
-			_, _, option = self.split_uri(uri)
-			!(option.nil? or option == '')
 		end
 	end
 	DRbProtocol.add_protocol(DRbSSHProtocol)
@@ -93,11 +85,15 @@ module DRb
 			ctp_rd, ctp_wr = IO.pipe
 			ptc_rd, ptc_wr = IO.pipe
 
-			host, cmd, _ = DRbSSHProtocol.split_uri(uri)
+			host, cmd = DRbSSHProtocol.split_uri(uri)
 
-			# Read the source-code for this file, and add bits for initialising a remote client.
-			self_code = File.read(__FILE__)
-			self_code += "\nDRb.start_service('#{uri}', binding); DRb.thread.join\n"
+			# Read the source-code for this file, and add bits for initialising the remote side.
+			self_code = <<-EOT
+				#{File.read(__FILE__)};
+				DRb.start_service("#{uri}", binding)
+				DRb.thread['DRbSSHLocalClient'] = DRb::DRbSSHLocalClient.new(DRb::DRbSSHProtocol.server)
+				DRb.thread.join
+			EOT
 
 			if fork.nil?
 				# child

@@ -7,34 +7,31 @@ describe DRb::DRbSSHProtocol do
 		described_class.uri_option("drbssh://localhost/ruby", {}).should eq [ "drbssh://localhost/ruby", nil ]
 		described_class.uri_option("drbssh://localhost", {}).should eq [ "drbssh://localhost/", nil ]
 
-		described_class.uri_option("drbssh://localhost/ruby?local", {}).should eq [ "drbssh://localhost/ruby", "local" ]
-		described_class.uri_option("drbssh://localhost?local", {}).should eq [ "drbssh://localhost/", "local" ]
-
 		expect { described_class.uri_option("druby://localhost/ruby", {}) }.to raise_exception DRb::DRbBadScheme
 		expect { described_class.uri_option("drbssh://", {}) }.to raise_exception DRb::DRbBadURI
 	end
 
 	it "starts and stops when requested" do
 		expect { DRb.current_server }.to raise_exception DRb::DRbServerNotFound
-		DRb.start_service("drbssh://localhost?local")
+		DRb.start_service("drbssh://localhost")
 		DRb.current_server.instance_variable_get("@protocol").should be_an_instance_of DRb::DRbSSHServer
 		DRb.stop_service
 		expect { DRb.current_server }.to raise_exception DRb::DRbServerNotFound
 	end
 
 	it "disallows running two drbssh-servers" do
-		DRb.start_service("drbssh://localhost?local")
-		expect { DRb.start_service("drbssh://localhost2?local") }.to raise_exception DRb::DRbConnError
+		DRb.start_service("drbssh://localhost")
+		expect { DRb.start_service("drbssh://localhost2") }.to raise_exception DRb::DRbConnError
 	end
 
 	it "creates DRbObjects with a URI pointed to itself" do
-		DRb.start_service("drbssh://localhost?local")
-		DRb::DRbObject.new({}.extend(DRbUndumped)).__drburi.should eq 'drbssh://localhost?local'
+		DRb.start_service("drbssh://localhost")
+		DRb::DRbObject.new({}.extend(DRbUndumped)).__drburi.should eq 'drbssh://localhost'
 		DRb.stop_service
 	end
 
 	it "connects to a remote Ruby" do
-		DRb.start_service("drbssh://localhost?local")
+		DRb.start_service("drbssh://localhost")
 		drb = DRbObject.new_with_uri("drbssh://vagrant-zfs/ruby")
 		drb.should be_an_instance_of DRb::DRbObject
 		drb.__drburi.should eq "drbssh://vagrant-zfs/ruby"
@@ -46,7 +43,7 @@ describe DRb::DRbSSHProtocol do
 	end
 
 	it "allows two-way communication" do
-		DRb.start_service("drbssh://localhost?local")
+		DRb.start_service("drbssh://localhost")
 
 		drb = DRbObject.new_with_uri("drbssh://vagrant-zfs/ruby")
 
@@ -68,7 +65,7 @@ describe DRb::DRbSSHProtocol do
 	end
 
 	it "reconnects when connection has been terminated" do
-		DRb.start_service("drbssh://localhost?local")
+		DRb.start_service("drbssh://localhost")
 		drb = DRbObject.new_with_uri("drbssh://vagrant-zfs/ruby")
 		drb.eval("`hostname`").should eq "vagrant-ubuntu-oneiric\n"
 		pid = drb.eval('$$')
