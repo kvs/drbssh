@@ -5,6 +5,7 @@ require 'drbssh'
 describe DRb::DRbSSHProtocol do
 	it "responds to drbssh:// URIs" do
 		described_class.uri_option("drbssh://localhost/ruby", {}).should eq [ "drbssh://localhost/ruby", nil ]
+		described_class.uri_option("drbssh://localhost/", {}).should eq [ "drbssh://localhost/", nil ]
 		described_class.uri_option("drbssh://localhost", {}).should eq [ "drbssh://localhost/", nil ]
 		described_class.uri_option("drbssh://", {}).first.should match(/^drbssh:\/\//)
 

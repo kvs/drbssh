@@ -40,7 +40,7 @@ module DRb
 
 		# Split URI into component pairs
 		def self.split_uri(uri)
-			if uri.match('^drbssh://([^/?]+)?(?:/(.+))?$')
+			if uri.match('^drbssh://([^/?]+)?/?(?:(.+))?$')
 				[ $1, $2 ]
 			else
 				raise DRbBadScheme,uri unless uri =~ /^drbssh:/
