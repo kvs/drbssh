@@ -70,7 +70,12 @@ module DRb
 		end
 
 		def recv_reply
-			@receiveq.pop
+			reply = @receiveq.pop
+			if reply == 'quit'
+				self.close
+			else
+				reply
+			end
 		end
 
 		def alive?
@@ -134,8 +139,8 @@ module DRb
 		def close
 			# Closing the filedescriptors should trigger an IOError in the server-thread
 			# waiting, which makes it close the client attached.
-			self.read_fd.close
-			self.write_fd.close
+			self.read_fd.close unless self.read_fd.closed?
+			self.write_fd.close unless self.write_fd.closed?
 		end
 	end
 
@@ -218,7 +223,8 @@ module DRb
 						end
 					end
 				rescue
-					client.close
+					client.receiveq.push('close')
+					@srv_requestq.push('close')
 				end
 			end
 
@@ -239,7 +245,8 @@ module DRb
 						end
 					end
 				rescue
-					client.close
+					client.receiveq.push('close')
+					@srv_requestq.push('close')
 				end
 			end
 		end
@@ -251,7 +258,12 @@ module DRb
 
 		# Wait for a request to appear on the request-queue
 		def recv_request
-			@srv_requestq.pop
+			reply = @srv_requestq.pop
+			if reply == 'quit'
+				self.close
+			else
+				reply
+			end
 		end
 
 		# Queue client-reply

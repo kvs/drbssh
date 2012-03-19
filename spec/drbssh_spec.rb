@@ -71,8 +71,10 @@ describe DRb::DRbSSHProtocol do
 		drb.eval("`hostname`").should eq "vagrant-ubuntu-oneiric\n"
 		pid = drb.eval('$$')
 
-		expect { drb.eval('Kernel.exit! 0') }.to raise_exception IOError
+		drb.eval('Kernel.exit! 0').should be_nil
 
 		drb.eval('$$').should_not eq pid # should create new connection
+
+		DRb.stop_service
 	end
 end
