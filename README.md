@@ -26,6 +26,8 @@ interpreter. The only interesting function exposed is `eval`.
 
 Uses a Vagrant VM with an Ubuntu-installation to serve as the remote end-point in tests.
 
+The Vagrant VM is supposed to be reachable as 'vagrant-drbssh'.
+
 ## TODOS
 
 * Use Net::SSH if installed/possible?
