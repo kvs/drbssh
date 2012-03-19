@@ -1,6 +1,7 @@
 # -*- mode: ruby; tab-width: 4; indent-tabs-mode: t -*-
 
 require 'drb'
+require 'socket'
 
 # DRb protocol handler for using a persistent SSH connection to a remote server. Creates a duplex
 # connection so DRbUndumped objects can contact the initiating machine back through the same link.
@@ -33,12 +34,13 @@ module DRb
 		# Parse +uri+ into a [uri, option] pair.
 		def self.uri_option(uri, config)
 			host, path = split_uri(uri)
+			host ||= Socket.gethostname
 			[ "drbssh://#{host}/#{path}", nil ]
 		end
 
 		# Split URI into component pairs
 		def self.split_uri(uri)
-			if uri.match('^drbssh://([^/?]+)(?:/(.+))?$')
+			if uri.match('^drbssh://([^/?]+)?(?:/(.+))?$')
 				[ $1, $2 ]
 			else
 				raise DRbBadScheme,uri unless uri =~ /^drbssh:/

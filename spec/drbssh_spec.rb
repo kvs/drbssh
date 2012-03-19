@@ -6,9 +6,9 @@ describe DRb::DRbSSHProtocol do
 	it "responds to drbssh:// URIs" do
 		described_class.uri_option("drbssh://localhost/ruby", {}).should eq [ "drbssh://localhost/ruby", nil ]
 		described_class.uri_option("drbssh://localhost", {}).should eq [ "drbssh://localhost/", nil ]
+		described_class.uri_option("drbssh://", {}).first.should match(/^drbssh:\/\//)
 
 		expect { described_class.uri_option("druby://localhost/ruby", {}) }.to raise_exception DRb::DRbBadScheme
-		expect { described_class.uri_option("drbssh://", {}) }.to raise_exception DRb::DRbBadURI
 	end
 
 	it "starts and stops when requested" do
