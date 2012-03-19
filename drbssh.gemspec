@@ -4,7 +4,7 @@ require 'rake'
 
 Gem::Specification.new do |s|
 	s.name        = "drbssh"
-	s.version     = "0.5.1"
+	s.version     = "0.5.2"
 	s.platform    = Gem::Platform::RUBY
 	s.authors     = %w(kvs)
 	s.email       = %w(kvs@binarysolutions.dk)
