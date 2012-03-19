@@ -71,9 +71,20 @@ describe DRb::DRbSSHProtocol do
 		drb.eval("`hostname`").should eq "vagrant-ubuntu-oneiric\n"
 		pid = drb.eval('$$')
 
-		drb.eval('Kernel.exit! 0').should be_nil
+		expect { drb.eval('Kernel.exit! 0') }.to raise_exception(DRb::DRbConnError)
 
 		drb.eval('$$').should_not eq pid # should create new connection
+
+		DRb.stop_service
+	end
+
+	it "handles eval-errors correctly" do
+		DRb.start_service("drbssh://")
+
+		drb = DRbObject.new_with_uri("drbssh://vagrant-drbssh/")
+		expect { drb.eval("raise 'test'") }.to raise_exception "test"
+
+		expect { drb.eval('Invalid') }.to raise_exception NameError
 
 		DRb.stop_service
 	end

@@ -2,6 +2,7 @@
 
 require 'drb'
 require 'socket'
+require 'timeout'
 
 # DRb protocol handler for using a persistent SSH connection to a remote server. Creates a duplex
 # connection so DRbUndumped objects can contact the initiating machine back through the same link.
@@ -71,8 +72,9 @@ module DRb
 
 		def recv_reply
 			reply = @receiveq.pop
-			if reply == 'quit'
+			if reply.is_a? Exception
 				self.close
+				raise reply
 			else
 				reply
 			end
@@ -223,8 +225,8 @@ module DRb
 						end
 					end
 				rescue
-					client.receiveq.push('close')
-					@srv_requestq.push('close')
+					client.receiveq.push($!)
+					@srv_requestq.push($!)
 				end
 			end
 
@@ -245,22 +247,29 @@ module DRb
 						end
 					end
 				rescue
-					client.receiveq.push('close')
-					@srv_requestq.push('close')
+					client.receiveq.push($!)
+					@srv_requestq.push($!)
 				end
 			end
 		end
 
 		# Delegate shutdown to client.
 		def close
+			return unless @client.alive?
+
+			Timeout::timeout(15) do
+				sleep 0.1 until @client.sendq.empty?
+			end rescue nil
+
 			@client.close
 		end
 
 		# Wait for a request to appear on the request-queue
 		def recv_request
 			reply = @srv_requestq.pop
-			if reply == 'quit'
+			if reply.is_a? Exception
 				self.close
+				raise reply
 			else
 				reply
 			end
