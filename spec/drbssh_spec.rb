@@ -33,9 +33,9 @@ describe DRb::DRbSSHProtocol do
 
 	it "connects to a remote Ruby" do
 		DRb.start_service("drbssh://localhost")
-		drb = DRbObject.new_with_uri("drbssh://vagrant-drbssh/ruby")
+		drb = DRbObject.new_with_uri("drbssh://vagrant/ruby")
 		drb.should be_an_instance_of DRb::DRbObject
-		drb.__drburi.should eq "drbssh://vagrant-drbssh/ruby"
+		drb.__drburi.should eq "drbssh://vagrant/ruby"
 
 		drb.eval("1+1").should eq 2
 		drb.eval("`hostname`").should eq "vagrant-ubuntu-oneiric\n"
@@ -46,7 +46,7 @@ describe DRb::DRbSSHProtocol do
 	it "allows two-way communication" do
 		DRb.start_service("drbssh://localhost")
 
-		drb = DRbObject.new_with_uri("drbssh://vagrant-drbssh/ruby")
+		drb = DRbObject.new_with_uri("drbssh://vagrant/ruby")
 
 		remote_hash = drb.eval("@a = {}.extend(DRb::DRbUndumped)")
 
@@ -67,7 +67,7 @@ describe DRb::DRbSSHProtocol do
 
 	it "reconnects when connection has been terminated" do
 		DRb.start_service("drbssh://localhost")
-		drb = DRbObject.new_with_uri("drbssh://vagrant-drbssh/ruby")
+		drb = DRbObject.new_with_uri("drbssh://vagrant/ruby")
 		drb.eval("`hostname`").should eq "vagrant-ubuntu-oneiric\n"
 		pid = drb.eval('$$')
 
@@ -81,7 +81,7 @@ describe DRb::DRbSSHProtocol do
 	it "handles eval-errors correctly" do
 		DRb.start_service("drbssh://")
 
-		drb = DRbObject.new_with_uri("drbssh://vagrant-drbssh/")
+		drb = DRbObject.new_with_uri("drbssh://vagrant/")
 		expect { drb.eval("raise 'test'") }.to raise_exception "test"
 
 		expect { drb.eval('Invalid') }.to raise_exception NameError
